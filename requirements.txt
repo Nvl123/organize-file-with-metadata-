@@ -1,0 +1,3 @@
+# Dependensi utama untuk membaca metadata gambar dan file HEIC (iPhone)
+pillow>=10.0.0
+pillow-heif>=0.18.0
