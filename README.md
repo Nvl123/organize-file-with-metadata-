@@ -57,8 +57,10 @@ Codero/
 Pastikan telah menginstal **Python 3.10** ke atas. Instal pustaka pendukung berikut:
 
 ```bash
-pip install pillow pillow-heif
+pip install -r requirements.txt
 ```
+
+*(Atau instal secara manual: `pip install pillow pillow-heif`)*
 
 > **Catatan**: 
 > - `pillow`: Digunakan untuk membaca metadata EXIF gambar standar (JPG, PNG, TIFF).
