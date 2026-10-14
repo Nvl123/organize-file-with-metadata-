@@ -6,6 +6,7 @@ Skrip Python otomatis untuk membaca metadata tanggal dari file foto dan video, k
 
 ## 📋 Fitur Utama
 
+- **Antarmuka Grafis (GUI) Interaktif**: Tersedia aplikasi GUI (`organize_media_gui.py`) yang dilengkapi dengan Progress Bar, pemantauan lokasi file asli dan tujuan secara langsung, statistik jumlah file, dan rentang tanggal metadata.
 - **Dukungan Format Gambar Luas**: Mendukung format umum seperti `.jpg`, `.jpeg`, `.png`, `.webp`, `.tiff`, serta format foto Apple iPhone terbaru (`.heic`) dan format RAW kamera (`.cr2`, `.nef`, `.arw`).
 - **Ekstraksi Metadata Video Native**: Mampu membaca metadata atom QuickTime/MP4 (`moov` -> `creationdate` / `mvhd`) secara langsung tanpa perlu menginstal aplikasi pihak ketiga seperti *FFmpeg* atau *ffprobe*.
 - **Struktur Folder Teratur**:
@@ -22,7 +23,8 @@ Skrip Python otomatis untuk membaca metadata tanggal dari file foto dan video, k
 
 ```text
 Codero/
-├── organize_media.py
+├── organize_media.py              <-- Mode CLI (Terminal)
+├── organize_media_gui.py          <-- Mode GUI (Antarmuka Grafis)
 ├── README.md
 ├── miscellaneous/                  <-- File tanpa metadata tanggal
 │   ├── 0d17b5cd-....jpg
@@ -70,6 +72,17 @@ pip install -r requirements.txt
 
 ## 🚀 Cara Penggunaan
 
+### 🖥️ Mode Tampilan Grafis (GUI) — Direkomendasikan
+Untuk menggunakan antarmuka grafis (GUI) lengkap dengan Progress Bar, pemantauan lokasi file asli & tujuan secara real-time, laporan jumlah file, dan rentang tanggal metadata:
+
+```bash
+python organize_media_gui.py
+```
+*(Atau cukup klik ganda (double-click) file `organize_media_gui.py` di Windows Explorer)*
+
+---
+
+### 💻 Mode Terminal (CLI)
 Simpan file skrip `organize_media.py` di dalam folder yang berisi media Anda, lalu buka terminal/PowerShell di direktori tersebut:
 
 ### 1. Simulasi Terlebih Dahulu (Dry Run)
