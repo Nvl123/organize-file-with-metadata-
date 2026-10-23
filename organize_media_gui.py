@@ -10,6 +10,17 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+# Set Windows DPI Awareness agar antarmuka tajam dan tidak pecah / terpotong di layar laptop
+try:
+    import ctypes
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    try:
+        import ctypes
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
 # Coba import Pillow dan pillow_heif untuk gambar
 try:
     from PIL import Image, ExifTags
@@ -156,14 +167,15 @@ def get_unique_destination_path(target_path: Path) -> Path:
 
 
 # ==============================================================================
-# GUI UTAMA (TKINTER)
+# GUI UTAMA (TKINTER MODERN & RESPONSIVE)
 # ==============================================================================
 class MediaOrganizerGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Media Metadata Organizer")
-        self.root.geometry("820x720")
-        self.root.minsize(750, 650)
+        self.root.title("Media Metadata Organizer - GUI")
+        # Ukuran proporsional & nyaman untuk berbagai resolusi layar laptop/desktop
+        self.root.geometry("880x660")
+        self.root.minsize(760, 520)
 
         # Queue untuk komunikasi thread-safe antara worker thread & GUI
         self.msg_queue = queue.Queue()
@@ -172,212 +184,432 @@ class MediaOrganizerGUI:
 
         self._apply_style()
         self._build_ui()
+        self._bind_shortcuts()
         self._process_queue()
 
     def _apply_style(self):
         style = ttk.Style()
-        # Gunakan tema native yang bersih
         if "clam" in style.theme_names():
             style.theme_use("clam")
 
-        # Warna kustom
-        self.bg_color = "#f4f5f7"
-        self.card_bg = "#ffffff"
-        self.primary_color = "#2563eb"
-        self.text_color = "#1e293b"
+        # Palet Warna Modern (Clean Slate & Indigo)
+        self.bg_color = "#f8fafc"         # Slate-50
+        self.card_bg = "#ffffff"          # Pure White
+        self.border_color = "#e2e8f0"     # Slate-200
+        self.primary_color = "#2563eb"    # Blue-600
+        self.text_dark = "#0f172a"        # Slate-900
+        self.text_muted = "#64748b"       # Slate-500
 
         self.root.configure(bg=self.bg_color)
 
-        style.configure(".", background=self.bg_color, foreground=self.text_color, font=("Segoe UI", 9))
+        style.configure(".", background=self.bg_color, foreground=self.text_dark, font=("Segoe UI", 9))
         style.configure("TFrame", background=self.bg_color)
-        style.configure("Card.TFrame", background=self.card_bg, relief="groove")
+        style.configure("Card.TFrame", background=self.card_bg)
         style.configure("TLabelframe", background=self.card_bg)
-        style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"), background=self.card_bg, foreground="#0f172a")
+        style.configure(
+            "TLabelframe.Label",
+            font=("Segoe UI", 9, "bold"),
+            background=self.card_bg,
+            foreground="#1e293b"
+        )
 
-        style.configure("Header.TLabel", font=("Segoe UI", 14, "bold"), foreground="#1e3a8a", background=self.bg_color)
-        style.configure("SubHeader.TLabel", font=("Segoe UI", 9), foreground="#64748b", background=self.bg_color)
-        style.configure("Card.TLabel", background=self.card_bg, foreground=self.text_color)
-        style.configure("Value.TLabel", background=self.card_bg, font=("Segoe UI", 9, "bold"), foreground="#0f172a")
-        style.configure("Path.TLabel", background=self.card_bg, font=("Consolas", 8), foreground="#0369a1")
+        style.configure("Header.TLabel", font=("Segoe UI", 13, "bold"), foreground="#0f172a", background=self.card_bg)
+        style.configure("SubHeader.TLabel", font=("Segoe UI", 9), foreground=self.text_muted, background=self.card_bg)
+        style.configure("Card.TLabel", background=self.card_bg, foreground=self.text_dark)
+        style.configure("Muted.TLabel", background=self.card_bg, foreground=self.text_muted, font=("Segoe UI", 8))
+        style.configure("Value.TLabel", background=self.card_bg, font=("Segoe UI", 10, "bold"), foreground="#1e293b")
+        style.configure("Path.TLabel", background=self.card_bg, font=("Consolas", 8), foreground="#0284c7")
 
-        style.configure("Action.TButton", font=("Segoe UI", 10, "bold"), foreground="#ffffff", background=self.primary_color)
-        style.map("Action.TButton", background=[("active", "#1d4ed8"), ("disabled", "#94a3b8")])
-
-        style.configure("Danger.TButton", font=("Segoe UI", 10, "bold"), foreground="#ffffff", background="#dc2626")
-        style.map("Danger.TButton", background=[("active", "#b91c1c"), ("disabled", "#94a3b8")])
+        # Style Progressbar
+        style.configure("Horizontal.TProgressbar", troughcolor="#e2e8f0", background="#2563eb", thickness=14)
 
     def _build_ui(self):
-        main_container = ttk.Frame(self.root, padding=16)
-        main_container.pack(fill=tk.BOTH, expand=True)
+        # 1. FIXED BOTTOM STATUS BAR (Packed FIRST with side=BOTTOM agar TIDAK PERNAH terpotong)
+        self._build_bottom_bar()
 
-        # 1. HEADER
-        header_frame = ttk.Frame(main_container)
-        header_frame.pack(fill=tk.X, pady=(0, 12))
+        # 2. MAIN SCROLLABLE/EXPANDING CONTAINER
+        main_container = ttk.Frame(self.root, padding=(14, 12, 14, 8))
+        main_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        ttk.Label(header_frame, text="📸 Media Metadata Organizer", style="Header.TLabel").pack(anchor=tk.W)
-        ttk.Label(
-            header_frame,
-            text="Organisir foto & video otomatis berdasarkan Hari/Tanggal metadata EXIF dan MP4 QuickTime.",
-            style="SubHeader.TLabel"
+        # 3. HEADER BANNER
+        self._build_header(main_container)
+
+        # 4. KARTU PENGATURAN & TOMBOL MULAI (LANGSUNG TERLIHAT DI ATAS)
+        self._build_config_and_actions(main_container)
+
+        # 5. KARTU DASHBOARD STATUS & STATISTIK
+        self._build_dashboard(main_container)
+
+        # 6. LOG AKTIVITAS (FLEXIBLE EXPAND DI SISA RUANG)
+        self._build_log_section(main_container)
+
+    def _build_bottom_bar(self):
+        """Status bar tetap di paling bawah, dijamin selalu muncul di layar."""
+        bottom_frame = tk.Frame(self.root, bg="#f1f5f9", height=30, highlightthickness=1, highlightbackground=self.border_color)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.lbl_footer_status = tk.Label(
+            bottom_frame,
+            text="🟢 Siap digunakan. Pilih folder dan klik Mulai.",
+            font=("Segoe UI", 8),
+            bg="#f1f5f9",
+            fg="#334155"
+        )
+        self.lbl_footer_status.pack(side=tk.LEFT, padx=12, pady=5)
+
+        lbl_tips = tk.Label(
+            bottom_frame,
+            text="Pintas Keyboard: [F5] Mulai | [Esc] Hentikan",
+            font=("Segoe UI", 8),
+            bg="#f1f5f9",
+            fg="#64748b"
+        )
+        lbl_tips.pack(side=tk.RIGHT, padx=12, pady=5)
+
+    def _build_header(self, parent):
+        header_card = tk.Frame(parent, bg=self.card_bg, padx=12, pady=8, highlightthickness=1, highlightbackground=self.border_color)
+        header_card.pack(fill=tk.X, pady=(0, 8))
+
+        top_row = tk.Frame(header_card, bg=self.card_bg)
+        top_row.pack(fill=tk.X)
+
+        tk.Label(
+            top_row,
+            text="📸 Media Metadata Organizer",
+            font=("Segoe UI", 12, "bold"),
+            bg=self.card_bg,
+            fg="#1e3a8a"
+        ).pack(side=tk.LEFT)
+
+        tk.Label(
+            top_row,
+            text="v1.2 GUI Edition",
+            font=("Segoe UI", 8, "bold"),
+            bg="#e0e7ff",
+            fg="#3730a3",
+            padx=6,
+            pady=2
+        ).pack(side=tk.RIGHT)
+
+        tk.Label(
+            header_card,
+            text="Otomatis sortir foto & video ke folder Hari (Senin-Minggu) & Tanggal (YYYY-MM-DD) berdasarkan EXIF/QuickTime.",
+            font=("Segoe UI", 8),
+            bg=self.card_bg,
+            fg=self.text_muted
         ).pack(anchor=tk.W, pady=(2, 0))
 
-        # 2. PENGATURAN DIREKTORI & MODE
-        config_frame = ttk.LabelFrame(main_container, text=" Konfigurasi Direktori & Mode ", padding=12)
-        config_frame.pack(fill=tk.X, pady=(0, 10))
+    def _build_config_and_actions(self, parent):
+        """Bagian Pengaturan Folder, Mode Tindakan, dan Tombol Start Utama yang sangat jelas."""
+        card = tk.Frame(parent, bg=self.card_bg, padx=12, pady=10, highlightthickness=1, highlightbackground=self.border_color)
+        card.pack(fill=tk.X, pady=(0, 8))
 
-        # Folder Asli (Sumber)
-        row1 = ttk.Frame(config_frame, style="Card.TFrame")
-        row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="Folder Sumber:", width=15, style="Card.TLabel").pack(side=tk.LEFT)
+        # Baris 1: Folder Sumber
+        row1 = tk.Frame(card, bg=self.card_bg)
+        row1.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(row1, text="📁 Folder Sumber:", font=("Segoe UI", 9, "bold"), bg=self.card_bg, width=14, anchor=tk.W).pack(side=tk.LEFT)
         self.source_dir_var = tk.StringVar(value=str(Path(".").resolve()))
-        source_entry = ttk.Entry(row1, textvariable=self.source_dir_var, font=("Segoe UI", 9))
-        source_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
-        ttk.Button(row1, text="Pilih Folder...", command=self._browse_source).pack(side=tk.RIGHT)
+        entry_source = ttk.Entry(row1, textvariable=self.source_dir_var, font=("Segoe UI", 9))
+        entry_source.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 6))
 
-        # Mode Operasi (Move / Copy / Dry Run)
-        row2 = ttk.Frame(config_frame, style="Card.TFrame")
-        row2.pack(fill=tk.X, pady=(8, 0))
-        ttk.Label(row2, text="Mode Tindakan:", width=15, style="Card.TLabel").pack(side=tk.LEFT)
+        # Tombol Pilih Folder
+        btn_browse = tk.Button(
+            row1,
+            text="📂 Cari Folder...",
+            command=self._browse_source,
+            font=("Segoe UI", 9),
+            bg="#e2e8f0",
+            fg="#1e293b",
+            activebackground="#cbd5e1",
+            relief="flat",
+            padx=10,
+            pady=3,
+            cursor="hand2"
+        )
+        btn_browse.pack(side=tk.LEFT, padx=(0, 4))
+
+        # Tombol Buka di File Explorer
+        btn_open = tk.Button(
+            row1,
+            text="↗️ Buka Folder",
+            command=self._open_in_explorer,
+            font=("Segoe UI", 9),
+            bg="#f1f5f9",
+            fg="#475569",
+            activebackground="#e2e8f0",
+            relief="flat",
+            padx=8,
+            pady=3,
+            cursor="hand2"
+        )
+        btn_open.pack(side=tk.LEFT)
+
+        # Baris 2: Mode Operasi
+        row2 = tk.Frame(card, bg=self.card_bg)
+        row2.pack(fill=tk.X, pady=(2, 8))
+
+        tk.Label(row2, text="⚙️ Mode Tindakan:", font=("Segoe UI", 9, "bold"), bg=self.card_bg, width=14, anchor=tk.W).pack(side=tk.LEFT)
 
         self.mode_var = tk.StringVar(value="move")
-        r_move = ttk.Radiobutton(row2, text="Pindahkan File (Move)", variable=self.mode_var, value="move")
-        r_copy = ttk.Radiobutton(row2, text="Salin File (Copy)", variable=self.mode_var, value="copy")
-        r_dry = ttk.Radiobutton(row2, text="Simulasi Saja (Dry Run)", variable=self.mode_var, value="dry_run")
-        r_move.pack(side=tk.LEFT, padx=(0, 12))
-        r_copy.pack(side=tk.LEFT, padx=(0, 12))
+        r_move = tk.Radiobutton(
+            row2, text="📦 Pindahkan File (Move)", variable=self.mode_var, value="move",
+            bg=self.card_bg, activebackground=self.card_bg, font=("Segoe UI", 9)
+        )
+        r_copy = tk.Radiobutton(
+            row2, text="📋 Salin File (Copy)", variable=self.mode_var, value="copy",
+            bg=self.card_bg, activebackground=self.card_bg, font=("Segoe UI", 9)
+        )
+        r_dry = tk.Radiobutton(
+            row2, text="🧪 Simulasi Saja (Dry Run)", variable=self.mode_var, value="dry_run",
+            bg=self.card_bg, activebackground=self.card_bg, font=("Segoe UI", 9), fg="#0369a1"
+        )
+        r_move.pack(side=tk.LEFT, padx=(0, 10))
+        r_copy.pack(side=tk.LEFT, padx=(0, 10))
         r_dry.pack(side=tk.LEFT)
 
-        # 3. STATUS PEMROSESAN LANGSUNG (LIVE TRACKING)
-        status_frame = ttk.LabelFrame(main_container, text=" Status Pemrosesan Berjalan ", padding=12)
-        status_frame.pack(fill=tk.X, pady=(0, 10))
+        # Baris 3: BARIS TOMBOL AKSI UTAMA (SANGAT MENCOLOK, TIDAK AKAN PERNAH HILANG / TERGESER)
+        sep = tk.Frame(card, bg="#f1f5f9", height=1)
+        sep.pack(fill=tk.X, pady=(2, 8))
+
+        action_row = tk.Frame(card, bg=self.card_bg)
+        action_row.pack(fill=tk.X)
+
+        # TOMBOL START BESAR (HIJAU VIBRANT)
+        self.btn_start = tk.Button(
+            action_row,
+            text="▶  MULAI PENGELOMPOKAN (START)",
+            command=self._start_processing,
+            font=("Segoe UI", 10, "bold"),
+            bg="#16a34a",
+            fg="#ffffff",
+            activebackground="#15803d",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=18,
+            pady=7,
+            cursor="hand2"
+        )
+        self.btn_start.pack(side=tk.LEFT, padx=(0, 8))
+
+        # TOMBOL STOP (MERAH)
+        self.btn_stop = tk.Button(
+            action_row,
+            text="⏹  Hentikan (Stop)",
+            command=self._stop_processing,
+            font=("Segoe UI", 9, "bold"),
+            bg="#94a3b8",
+            fg="#ffffff",
+            activebackground="#b91c1c",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=12,
+            pady=7,
+            state=tk.DISABLED,
+            cursor="arrow"
+        )
+        self.btn_stop.pack(side=tk.LEFT, padx=(0, 10))
+
+        # STATUS PILL / INDIKATOR CEPAT
+        self.lbl_badge_status = tk.Label(
+            action_row,
+            text="Ready",
+            font=("Segoe UI", 8, "bold"),
+            bg="#dcfce7",
+            fg="#15803d",
+            padx=8,
+            pady=4
+        )
+        self.lbl_badge_status.pack(side=tk.LEFT)
+
+        # TOMBOL BERSIHKAN LOG DI SEBELAH KANAN
+        btn_clear = tk.Button(
+            action_row,
+            text="🧹 Bersihkan Log",
+            command=self._clear_log,
+            font=("Segoe UI", 8),
+            bg="#f1f5f9",
+            fg="#64748b",
+            activebackground="#e2e8f0",
+            relief="flat",
+            padx=8,
+            pady=5,
+            cursor="hand2"
+        )
+        btn_clear.pack(side=tk.RIGHT)
+
+    def _build_dashboard(self, parent):
+        """Dashboard pemantauan langsung: Progress bar, File aktif, Statistik kartu."""
+        card = tk.Frame(parent, bg=self.card_bg, padx=12, pady=8, highlightthickness=1, highlightbackground=self.border_color)
+        card.pack(fill=tk.X, pady=(0, 8))
 
         # Progress Bar & Persentase
-        p_row = ttk.Frame(status_frame, style="Card.TFrame")
+        p_row = tk.Frame(card, bg=self.card_bg)
         p_row.pack(fill=tk.X, pady=(0, 6))
-        self.progress_bar = ttk.Progressbar(p_row, orient=tk.HORIZONTAL, mode="determinate")
-        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        self.lbl_progress_percent = ttk.Label(p_row, text="0 / 0 (0%)", style="Value.TLabel", width=16, anchor=tk.E)
+
+        self.progress_bar = ttk.Progressbar(p_row, orient=tk.HORIZONTAL, mode="determinate", style="Horizontal.TProgressbar")
+        self.progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        self.lbl_progress_percent = tk.Label(
+            p_row,
+            text="0 / 0 (0%)",
+            font=("Segoe UI", 9, "bold"),
+            bg=self.card_bg,
+            fg="#1e293b",
+            width=14,
+            anchor=tk.E
+        )
         self.lbl_progress_percent.pack(side=tk.RIGHT)
 
-        # Lokasi File Asli & Tujuan
-        f_row = ttk.Frame(status_frame, style="Card.TFrame")
-        f_row.pack(fill=tk.X, pady=2)
-        ttk.Label(f_row, text="Lokasi Asli   :", width=14, style="Card.TLabel").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.lbl_current_source = ttk.Label(f_row, text="-", style="Path.TLabel", anchor=tk.W)
-        self.lbl_current_source.grid(row=0, column=1, sticky=tk.W, padx=6)
+        # File Sedang Diproses
+        loc_row = tk.Frame(card, bg=self.card_bg)
+        loc_row.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(f_row, text="Lokasi Tujuan :", width=14, style="Card.TLabel").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.lbl_current_dest = ttk.Label(f_row, text="-", style="Path.TLabel", anchor=tk.W)
-        self.lbl_current_dest.grid(row=1, column=1, sticky=tk.W, padx=6)
-        f_row.columnconfigure(1, weight=1)
+        tk.Label(loc_row, text="File Aktif :", font=("Segoe UI", 8, "bold"), bg=self.card_bg, fg=self.text_muted, width=10, anchor=tk.W).pack(side=tk.LEFT)
+        self.lbl_current_source = tk.Label(loc_row, text="Menunggu dimulai...", font=("Consolas", 8), bg=self.card_bg, fg="#0369a1", anchor=tk.W)
+        self.lbl_current_source.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # 4. LAPORAN HASIL & RENTANG TANGGAL
-        report_frame = ttk.LabelFrame(main_container, text=" Laporan & Statistik ", padding=12)
-        report_frame.pack(fill=tk.X, pady=(0, 10))
+        # Kartu Statistik 4 Kolom
+        stats_frame = tk.Frame(card, bg="#f8fafc", padx=8, pady=6, highlightthickness=1, highlightbackground=self.border_color)
+        stats_frame.pack(fill=tk.X)
+        for c in range(4):
+            stats_frame.columnconfigure(c, weight=1)
 
-        rep_grid = ttk.Frame(report_frame, style="Card.TFrame")
-        rep_grid.pack(fill=tk.X)
+        # Kolom 1: Total Diproses
+        c1 = tk.Frame(stats_frame, bg="#f8fafc")
+        c1.grid(row=0, column=0, sticky="ew")
+        tk.Label(c1, text="Total Media", font=("Segoe UI", 8), bg="#f8fafc", fg=self.text_muted).pack()
+        self.lbl_stat_processed = tk.Label(c1, text="0", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#0f172a")
+        self.lbl_stat_processed.pack()
 
-        ttk.Label(rep_grid, text="Total File Diproses :", style="Card.TLabel").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.lbl_stat_processed = ttk.Label(rep_grid, text="0", style="Value.TLabel")
-        self.lbl_stat_processed.grid(row=0, column=1, sticky=tk.W, padx=(4, 25))
+        # Kolom 2: Berhasil
+        c2 = tk.Frame(stats_frame, bg="#f8fafc")
+        c2.grid(row=0, column=1, sticky="ew")
+        tk.Label(c2, text="Terorganisir", font=("Segoe UI", 8), bg="#f8fafc", fg=self.text_muted).pack()
+        self.lbl_stat_classified = tk.Label(c2, text="0", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#16a34a")
+        self.lbl_stat_classified.pack()
 
-        ttk.Label(rep_grid, text="Berhasil Dikelompokkan :", style="Card.TLabel").grid(row=0, column=2, sticky=tk.W, pady=2)
-        self.lbl_stat_classified = ttk.Label(rep_grid, text="0", style="Value.TLabel")
-        self.lbl_stat_classified.grid(row=0, column=3, sticky=tk.W, padx=(4, 25))
+        # Kolom 3: Miscellaneous
+        c3 = tk.Frame(stats_frame, bg="#f8fafc")
+        c3.grid(row=0, column=2, sticky="ew")
+        tk.Label(c3, text="Miscellaneous", font=("Segoe UI", 8), bg="#f8fafc", fg=self.text_muted).pack()
+        self.lbl_stat_misc = tk.Label(c3, text="0", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#d97706")
+        self.lbl_stat_misc.pack()
 
-        ttk.Label(rep_grid, text="Tanpa Metadata (Misc) :", style="Card.TLabel").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.lbl_stat_misc = ttk.Label(rep_grid, text="0", style="Value.TLabel")
-        self.lbl_stat_misc.grid(row=1, column=1, sticky=tk.W, padx=(4, 25))
+        # Kolom 4: Dilewati
+        c4 = tk.Frame(stats_frame, bg="#f8fafc")
+        c4.grid(row=0, column=3, sticky="ew")
+        tk.Label(c4, text="Dilewati", font=("Segoe UI", 8), bg="#f8fafc", fg=self.text_muted).pack()
+        self.lbl_stat_skipped = tk.Label(c4, text="0", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#64748b")
+        self.lbl_stat_skipped.pack()
 
-        ttk.Label(rep_grid, text="Bukan Media (Dilewati):", style="Card.TLabel").grid(row=1, column=2, sticky=tk.W, pady=2)
-        self.lbl_stat_skipped = ttk.Label(rep_grid, text="0", style="Value.TLabel")
-        self.lbl_stat_skipped.grid(row=1, column=3, sticky=tk.W, padx=(4, 25))
+        # Rentang Tanggal Badge
+        date_row = tk.Frame(card, bg=self.card_bg)
+        date_row.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(date_row, text="📅 Rentang Tanggal Metadata :", font=("Segoe UI", 8, "bold"), bg=self.card_bg, fg="#334155").pack(side=tk.LEFT)
+        self.lbl_stat_date_range = tk.Label(date_row, text="-", font=("Segoe UI", 8, "bold"), bg=self.card_bg, fg="#2563eb")
+        self.lbl_stat_date_range.pack(side=tk.LEFT, padx=6)
 
-        # Rentang Tanggal
-        ttk.Label(rep_grid, text="Rentang Tanggal     :", style="Card.TLabel").grid(row=2, column=0, sticky=tk.W, pady=(6, 2))
-        self.lbl_stat_date_range = ttk.Label(
-            rep_grid,
-            text="-",
-            style="Value.TLabel",
-            foreground="#1d4ed8"
-        )
-        self.lbl_stat_date_range.grid(row=2, column=1, columnspan=3, sticky=tk.W, padx=4, pady=(6, 2))
+    def _build_log_section(self, parent):
+        """Kotak log aktivitas bergaya modern console yang fleksibel menyesuaikan tinggi jendela."""
+        log_frame = tk.Frame(parent, bg=self.card_bg, padx=10, pady=8, highlightthickness=1, highlightbackground=self.border_color)
+        log_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 5. LOG AKTIVITAS (SCROLLABLE TEXT)
-        log_frame = ttk.LabelFrame(main_container, text=" Log Aktivitas ", padding=6)
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        header_row = tk.Frame(log_frame, bg=self.card_bg)
+        header_row.pack(fill=tk.X, pady=(0, 4))
+
+        tk.Label(header_row, text="📋 Log Aktivitas Real-Time", font=("Segoe UI", 8, "bold"), bg=self.card_bg, fg="#334155").pack(side=tk.LEFT)
+        tk.Label(header_row, text="Otomatis bergulir ke bawah", font=("Segoe UI", 7), bg=self.card_bg, fg=self.text_muted).pack(side=tk.RIGHT)
+
+        text_container = tk.Frame(log_frame, bg="#0f172a")
+        text_container.pack(fill=tk.BOTH, expand=True)
 
         self.log_text = tk.Text(
-            log_frame,
+            text_container,
             wrap=tk.WORD,
             font=("Consolas", 8),
-            bg="#ffffff",
-            fg="#1e293b",
+            bg="#0f172a",
+            fg="#e2e8f0",
+            insertbackground="#ffffff",
             relief="flat",
-            highlightthickness=1,
-            highlightbackground="#cbd5e1"
+            height=7,
+            padx=8,
+            pady=6
         )
-        log_scroll = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        log_scroll = ttk.Scrollbar(text_container, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=log_scroll.set)
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 6. TOMBOL AKSI UTAMA
-        btn_container = ttk.Frame(main_container)
-        btn_container.pack(fill=tk.X)
+        # Tag Pewarnaan Log
+        self.log_text.tag_config("SUCCESS", foreground="#4ade80")
+        self.log_text.tag_config("INFO", foreground="#60a5fa")
+        self.log_text.tag_config("WARN", foreground="#fbbf24")
+        self.log_text.tag_config("ERROR", foreground="#f87171", font=("Consolas", 8, "bold"))
+        self.log_text.tag_config("MUTED", foreground="#94a3b8")
+        self.log_text.tag_config("HEADER", foreground="#c084fc", font=("Consolas", 8, "bold"))
 
-        self.btn_start = ttk.Button(
-            btn_container,
-            text="🚀 Mulai Pengelompokan",
-            style="Action.TButton",
-            command=self._start_processing
-        )
-        self.btn_start.pack(side=tk.LEFT, padx=(0, 10), ipady=4)
+        self._log("👋 Selamat datang di Media Metadata Organizer!", "INFO")
+        self._log("Pilih folder sumber di atas, tentukan mode (Move/Copy/Dry Run), lalu tekan tombol 'MULAI PENGELOMPOKAN' atau tekan [F5].", "MUTED")
 
-        self.btn_stop = ttk.Button(
-            btn_container,
-            text="⏹️ Hentikan",
-            style="Danger.TButton",
-            command=self._stop_processing,
-            state=tk.DISABLED
-        )
-        self.btn_stop.pack(side=tk.LEFT, ipady=4)
-
-        self.lbl_footer_status = ttk.Label(btn_container, text="Siap digunakan.", foreground="#64748b")
-        self.lbl_footer_status.pack(side=tk.RIGHT, pady=6)
+    def _bind_shortcuts(self):
+        """Shortcut keyboard untuk kemudahan navigasi."""
+        self.root.bind("<F5>", lambda e: self._start_processing())
+        self.root.bind("<Control-Return>", lambda e: self._start_processing())
+        self.root.bind("<Escape>", lambda e: self._stop_processing())
 
     def _browse_source(self):
-        selected = filedialog.askdirectory(initialdir=self.source_dir_var.get(), title="Pilih Folder Media")
+        selected = filedialog.askdirectory(initialdir=self.source_dir_var.get(), title="Pilih Folder Sumber Media")
         if selected:
             self.source_dir_var.set(str(Path(selected).resolve()))
 
-    def _log(self, text: str):
-        self.log_text.insert(tk.END, text + "\n")
+    def _open_in_explorer(self):
+        folder = Path(self.source_dir_var.get().strip())
+        if folder.exists() and folder.is_dir():
+            if sys.platform == "win32":
+                os.startfile(str(folder))
+            else:
+                import subprocess
+                subprocess.run(["xdg-open", str(folder)])
+        else:
+            messagebox.showwarning("Peringatan", "Folder tidak ditemukan atau belum dipilih.")
+
+    def _clear_log(self):
+        self.log_text.delete("1.0", tk.END)
+
+    def _log(self, text: str, tag: str = None):
+        if tag:
+            self.log_text.insert(tk.END, text + "\n", tag)
+        else:
+            self.log_text.insert(tk.END, text + "\n")
         self.log_text.see(tk.END)
 
     def _start_processing(self):
+        # Mencegah eksekusi ganda jika sedang berjalan
+        if self.worker_thread and self.worker_thread.is_alive():
+            return
+
         source_path = Path(self.source_dir_var.get().strip())
         if not source_path.exists() or not source_path.is_dir():
             messagebox.showerror("Error", "Folder sumber tidak valid atau tidak ditemukan!")
             return
 
-        self.btn_start.configure(state=tk.DISABLED)
-        self.btn_stop.configure(state=tk.NORMAL)
-        self.lbl_footer_status.configure(text="Sedang memproses...")
+        # Update Tampilan Tombol
+        self.btn_start.configure(state=tk.DISABLED, bg="#94a3b8", cursor="arrow")
+        self.btn_stop.configure(state=tk.NORMAL, bg="#dc2626", cursor="hand2")
+        self.lbl_badge_status.configure(text="Sedang Berjalan", bg="#fef3c7", fg="#b45309")
+        self.lbl_footer_status.configure(text="⏳ Sedang memproses media...")
         self.cancel_requested.clear()
 
-        # Reset UI
+        # Reset Statistik
         self.progress_bar["value"] = 0
         self.lbl_progress_percent.configure(text="0 / 0 (0%)")
-        self.lbl_current_source.configure(text="-")
-        self.lbl_current_dest.configure(text="-")
+        self.lbl_current_source.configure(text="Memulai pemindaian file...")
         self.lbl_stat_processed.configure(text="0")
         self.lbl_stat_classified.configure(text="0")
         self.lbl_stat_misc.configure(text="0")
         self.lbl_stat_skipped.configure(text="0")
         self.lbl_stat_date_range.configure(text="-")
-        self.log_text.delete("1.0", tk.END)
 
         mode = self.mode_var.get()
         self.worker_thread = threading.Thread(
@@ -390,17 +622,16 @@ class MediaOrganizerGUI:
     def _stop_processing(self):
         if self.worker_thread and self.worker_thread.is_alive():
             self.cancel_requested.set()
-            self._log("⚠️ Permintaan pembatalan diterima, menunggu proses saat ini selesai...")
-            self.lbl_footer_status.configure(text="Membatalkan...")
-            self.btn_stop.configure(state=tk.DISABLED)
+            self._log("⚠️ Permintaan pembatalan diterima, menghentikan proses...", "WARN")
+            self.lbl_footer_status.configure(text="⏹ Menghentikan...")
+            self.btn_stop.configure(state=tk.DISABLED, bg="#94a3b8", cursor="arrow")
 
     def _worker_run(self, source_dir: Path, mode: str):
-        """Dijalankan di background thread agar UI tetap responsif."""
+        """Worker thread untuk memproses file di latar belakang tanpa membekukan antarmuka."""
         dry_run = (mode == "dry_run")
         effective_mode = "copy" if mode == "copy" else "move"
 
         all_entries = [f for f in source_dir.iterdir() if f.is_file()]
-        # Filter file skrip sendiri jika ada di direktori tersebut
         own_names = {"organize_media.py", "organize_media_gui.py", Path(__file__).name}
         files_to_check = [f for f in all_entries if f.name not in own_names]
 
@@ -417,13 +648,13 @@ class MediaOrganizerGUI:
 
         for idx, file_path in enumerate(files_to_check, start=1):
             if self.cancel_requested.is_set():
-                self.msg_queue.put(("LOG", "⏹️ Proses dihentikan oleh pengguna."))
+                self.msg_queue.put(("LOG", ("⏹️ Proses dihentikan oleh pengguna.", "WARN")))
                 break
 
             ext = file_path.suffix.lower()
             if ext not in IMAGE_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
                 skipped_count += 1
-                self.msg_queue.put(("UPDATE_PROGRESS", (idx, total_files, str(file_path), "Dilewati (Bukan Media)")))
+                self.msg_queue.put(("UPDATE_PROGRESS", (idx, total_files, file_path.name, "Dilewati (Bukan Media)")))
                 self.msg_queue.put(("STATS", (processed_count, classified_count, misc_count, skipped_count)))
                 continue
 
@@ -437,7 +668,6 @@ class MediaOrganizerGUI:
 
             if created_dt:
                 classified_count += 1
-                # Update rentang tanggal
                 if earliest_dt is None or created_dt < earliest_dt:
                     earliest_dt = created_dt
                 if latest_dt is None or created_dt > latest_dt:
@@ -447,14 +677,15 @@ class MediaOrganizerGUI:
                 date_folder_name = created_dt.strftime(DATE_FOLDER_FORMAT)
                 target_dir = source_dir / day_name / date_folder_name
                 log_tag = f"[{day_name} -> {date_folder_name}]"
+                tag_style = "SUCCESS"
             else:
                 misc_count += 1
                 target_dir = source_dir / MISC_FOLDER
                 log_tag = f"[{MISC_FOLDER}]"
+                tag_style = "WARN"
 
             dest_file_path = get_unique_destination_path(target_dir / file_path.name)
 
-            # Eksekusi aksi jika bukan dry run
             action_desc = "SIMULASI"
             if not dry_run:
                 target_dir.mkdir(parents=True, exist_ok=True)
@@ -466,12 +697,15 @@ class MediaOrganizerGUI:
                     action_desc = "SALIN"
             else:
                 action_desc = "SIMULASI"
+                tag_style = "INFO"
 
-            self.msg_queue.put(("UPDATE_PROGRESS", (idx, total_files, str(file_path), str(dest_file_path))))
-            self.msg_queue.put(("LOG", f"[{action_desc}] {file_path.name} -> {target_dir.relative_to(source_dir)} {log_tag}"))
+            rel_target = target_dir.relative_to(source_dir)
+            log_line = f"[{action_desc}] {file_path.name}  ➔  {rel_target} {log_tag}"
+
+            self.msg_queue.put(("UPDATE_PROGRESS", (idx, total_files, file_path.name, str(rel_target))))
+            self.msg_queue.put(("LOG", (log_line, tag_style)))
             self.msg_queue.put(("STATS", (processed_count, classified_count, misc_count, skipped_count)))
 
-            # Update rentang tanggal jika ada
             if earliest_dt and latest_dt:
                 self.msg_queue.put(("DATE_RANGE", (earliest_dt, latest_dt)))
 
@@ -486,15 +720,14 @@ class MediaOrganizerGUI:
                     total = payload
                     self.progress_bar["maximum"] = max(total, 1)
                     self.lbl_progress_percent.configure(text=f"0 / {total} (0%)")
-                    self._log(f"📋 Memulai pemrosesan {total} file...")
+                    self._log(f"📋 Memulai pemrosesan {total} file ditemukan...", "HEADER")
 
                 elif msg_type == "UPDATE_PROGRESS":
-                    idx, total, src, dst = payload
+                    idx, total, src_name, dst_info = payload
                     pct = int((idx / total) * 100) if total > 0 else 0
                     self.progress_bar["value"] = idx
                     self.lbl_progress_percent.configure(text=f"{idx} / {total} ({pct}%)")
-                    self.lbl_current_source.configure(text=src)
-                    self.lbl_current_dest.configure(text=dst)
+                    self.lbl_current_source.configure(text=f"{src_name}  ➔  {dst_info}")
 
                 elif msg_type == "STATS":
                     proc, clas, misc, skip = payload
@@ -509,42 +742,48 @@ class MediaOrganizerGUI:
                     self.lbl_stat_date_range.configure(text=date_range_str)
 
                 elif msg_type == "LOG":
-                    self._log(payload)
+                    if isinstance(payload, tuple):
+                        text, tag = payload
+                        self._log(text, tag)
+                    else:
+                        self._log(payload)
 
                 elif msg_type == "DONE":
                     proc, clas, misc, skip, earliest, latest, dry_run = payload
-                    self.btn_start.configure(state=tk.NORMAL)
-                    self.btn_stop.configure(state=tk.DISABLED)
-                    self.lbl_footer_status.configure(text="Selesai.")
+
+                    # Kembalikan state tombol
+                    self.btn_start.configure(state=tk.NORMAL, bg="#16a34a", cursor="hand2")
+                    self.btn_stop.configure(state=tk.DISABLED, bg="#94a3b8", cursor="arrow")
+                    self.lbl_badge_status.configure(text="Selesai", bg="#dbeafe", fg="#1d4ed8")
+                    self.lbl_footer_status.configure(text="✅ Pemrosesan selesai.")
 
                     range_text = "Tidak ada metadata tanggal yang ditemukan."
                     if earliest and latest:
                         range_text = f"{earliest.strftime('%d %B %Y')} s/d {latest.strftime('%d %B %Y')} ({earliest.strftime('%Y-%m-%d')} ~ {latest.strftime('%Y-%m-%d')})"
                         self.lbl_stat_date_range.configure(text=f"{earliest.strftime('%d-%m-%Y')} s/d {latest.strftime('%d-%m-%Y')}")
 
-                    self._log("\n" + "=" * 60)
-                    self._log("🎉 PENGELOMPOKAN SELESAI")
-                    self._log(f" Mode              : {'SIMULASI (DRY RUN)' if dry_run else 'EKSEKUSI NYATA'}")
-                    self._log(f" Total Diproses    : {proc} file media")
-                    self._log(f" Dikelompokkan     : {clas} file")
-                    self._log(f" Masuk Misc        : {misc} file")
-                    self._log(f" Dilewati          : {skip} file")
-                    self._log(f" Rentang Tanggal   : {range_text}")
-                    self._log("=" * 60)
+                    mode_title = "SIMULASI (DRY RUN)" if dry_run else "EKSEKUSI NYATA"
+                    self._log("\n" + "=" * 55, "HEADER")
+                    self._log(f"🎉 PENGELOMPOKAN SELESAI ({mode_title})", "HEADER")
+                    self._log(f" • Total Media Diproses : {proc} file", "SUCCESS")
+                    self._log(f" • Berhasil Dikelompokkan: {clas} file", "SUCCESS")
+                    self._log(f" • Masuk Miscellaneous   : {misc} file", "WARN" if misc > 0 else "MUTED")
+                    self._log(f" • File Dilewati         : {skip} file", "MUTED")
+                    self._log(f" • Rentang Tanggal      : {range_text}", "INFO")
+                    self._log("=" * 55 + "\n", "HEADER")
 
                     messagebox.showinfo(
-                        "Proses Selesai",
-                        f"Pengelompokan selesai!\n\n"
+                        "Pengelompokan Selesai",
+                        f"Proses {mode_title} telah selesai!\n\n"
                         f"• Total Media Diproses: {proc}\n"
                         f"• Berhasil Terorganisir: {clas}\n"
                         f"• Masuk Miscellaneous: {misc}\n"
-                        f"• File Dilewati: {skip}\n\n"
+                        f"• Dilewati: {skip}\n\n"
                         f"📅 Rentang Tanggal:\n{range_text}"
                     )
         except queue.Empty:
             pass
 
-        # Jadwalkan pengecekan berikutnya setiap 50 ms
         self.root.after(50, self._process_queue)
 
 

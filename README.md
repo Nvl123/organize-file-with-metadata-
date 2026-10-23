@@ -80,6 +80,13 @@ python organize_media_gui.py
 ```
 *(Atau cukup klik ganda (double-click) file `organize_media_gui.py` di Windows Explorer)*
 
+**Cara Memulai di Versi GUI:**
+1. Klik **`📂 Cari Folder...`** untuk memilih folder media yang ingin dirapikan.
+2. Tentukan mode tindakan (**Move**, **Copy**, atau **Dry Run**).
+3. Klik tombol hijau besar **`▶ MULAI PENGELOMPOKAN (START)`** atau tekan tombol **`[F5]`** / **`[Ctrl+Enter]`** di keyboard.
+4. Anda dapat menghentikan proses kapan saja dengan tombol **`⏹ Hentikan (Stop)`** atau tombol **`[Esc]`**.
+5. Setelah selesai, klik tombol **`↗️ Buka Folder`** untuk membuka hasil pengelompokan di Windows File Explorer.
+
 ---
 
 ### 💻 Mode Terminal (CLI)
